@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "80:80"
+    environment:
+      X_AUTH: ${X_AUTH:-very-strong-secret}
+    volumes:
+      - ./storage/templates:/var/www/html/storage/templates
+      - ./storage/renders:/var/www/html/storage/renders
+    restart: unless-stopped

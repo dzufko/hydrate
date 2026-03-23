@@ -1,0 +1,504 @@
+{
+  "openapi": "3.0.3",
+  "security": [{ "XAuth": [] }],
+  "info": {
+    "title": "Hydrate API",
+    "description": "HTML template hydration and PDF generation with versioning",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/templates": {
+      "get": {
+        "summary": "List all templates",
+        "operationId": "listTemplates",
+        "tags": ["Templates"],
+        "responses": {
+          "200": {
+            "description": "Array of templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/TemplateSummary" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new template (or first version)",
+        "operationId": "createTemplate",
+        "tags": ["Templates"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TemplateInput" },
+              "example": {
+                "name": "invoice",
+                "description": "Invoice template v1",
+                "html": "<h1>Invoice for {{client}}</h1><p>Amount: {{amount}}</p>"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Template" }
+              }
+            }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/templates/{name}": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "example": "invoice"
+        }
+      ],
+      "get": {
+        "summary": "Get a template (latest or specific version)",
+        "operationId": "getTemplate",
+        "tags": ["Templates"],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" },
+            "description": "Specific version number; omit for latest"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Template" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "summary": "Save a new version of a template",
+        "operationId": "updateTemplate",
+        "tags": ["Templates"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TemplateUpdateInput" },
+              "example": {
+                "description": "Added due date placeholder",
+                "html": "<h1>Invoice for {{client}}</h1><p>Amount: {{amount}}</p><p>Due: {{due_date}}</p>"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "New version created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Template" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "delete": {
+        "summary": "Delete a template and all its versions",
+        "operationId": "deleteTemplate",
+        "tags": ["Templates"],
+        "responses": {
+          "200": {
+            "description": "Template deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/templates/{name}/versions": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "example": "invoice"
+        }
+      ],
+      "get": {
+        "summary": "List all versions of a template",
+        "operationId": "listVersions",
+        "tags": ["Templates"],
+        "responses": {
+          "200": {
+            "description": "List of versions with metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/VersionEntry" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{name}/versions/{version}": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "example": "invoice"
+        },
+        {
+          "name": "version",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "integer" },
+          "example": 2
+        }
+      ],
+      "delete": {
+        "summary": "Delete a specific version of a template",
+        "operationId": "deleteTemplateVersion",
+        "tags": ["Templates"],
+        "responses": {
+          "200": {
+            "description": "Version deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/templates/{name}/render": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "example": "invoice"
+        }
+      ],
+      "post": {
+        "summary": "Hydrate a template and render to PDF or HTML",
+        "operationId": "renderTemplate",
+        "tags": ["Render"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RenderInput" },
+              "example": {
+                "data": {
+                  "client": "Acme Corp",
+                  "amount": "$1,200.00",
+                  "due_date": "2026-04-01"
+                },
+                "version": 2,
+                "format": "pdf",
+                "paper": "A4",
+                "orientation": "portrait"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PDF saved — returns a temp URL valid for 30 minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url":        { "type": "string", "example": "http://localhost/renders/abc123..." },
+                    "expires_at": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "HTML string (when format=html)",
+            "content": {
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/renders/{token}": {
+      "parameters": [
+        {
+          "name": "token",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "description": "Temp token returned by the render endpoint"
+        }
+      ],
+      "get": {
+        "summary": "Download a previously rendered PDF (valid for 30 minutes)",
+        "operationId": "serveRender",
+        "tags": ["Render"],
+        "responses": {
+          "200": {
+            "description": "PDF file",
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "MCP (Model Context Protocol) endpoint",
+        "description": "JSON-RPC 2.0 endpoint implementing the Model Context Protocol. Supports initialize, ping, tools/list, and tools/call. Available tools: list_templates, get_template, create_template, update_template, delete_template, list_versions, delete_version, render_template.",
+        "operationId": "mcp",
+        "tags": ["MCP"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/JsonRpcRequest" },
+              "examples": {
+                "initialize": {
+                  "summary": "Handshake",
+                  "value": {
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": { "protocolVersion": "2024-11-05", "clientInfo": { "name": "my-client", "version": "1.0" } }
+                  }
+                },
+                "tools/list": {
+                  "summary": "List tools",
+                  "value": { "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }
+                },
+                "render_template": {
+                  "summary": "Render a template",
+                  "value": {
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {
+                      "name": "render_template",
+                      "arguments": {
+                        "name": "invoice",
+                        "data": { "client": "Acme", "amount": "$500" },
+                        "format": "pdf"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC 2.0 response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/JsonRpcResponse" }
+              }
+            }
+          },
+          "202": {
+            "description": "Notification acknowledged (no body)"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+
+    "schemas": {
+      "TemplateInput": {
+        "type": "object",
+        "required": ["name", "html"],
+        "properties": {
+          "name":        { "type": "string", "example": "invoice" },
+          "html":        { "type": "string", "example": "<h1>Hello {{name}}</h1>" },
+          "description": { "type": "string", "example": "Initial version" }
+        }
+      },
+      "TemplateUpdateInput": {
+        "type": "object",
+        "required": ["html"],
+        "properties": {
+          "html":        { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "Template": {
+        "type": "object",
+        "properties": {
+          "name":         { "type": "string" },
+          "version":      { "type": "integer" },
+          "placeholders": { "type": "array", "items": { "type": "string" } },
+          "html":         { "type": "string" },
+          "meta":         { "$ref": "#/components/schemas/Meta" }
+        }
+      },
+      "TemplateSummary": {
+        "type": "object",
+        "properties": {
+          "name":           { "type": "string" },
+          "latest_version": { "type": "integer" },
+          "versions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VersionEntry" }
+          }
+        }
+      },
+      "VersionEntry": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "integer" },
+          "meta":    { "$ref": "#/components/schemas/Meta" }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "properties": {
+          "version":     { "type": "integer" },
+          "description": { "type": "string" },
+          "created_at":  { "type": "string", "format": "date-time" }
+        }
+      },
+      "RenderInput": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Key/value map matching the template's placeholders"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Template version to render; omit for latest"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["pdf", "html"],
+            "default": "pdf"
+          },
+          "paper": {
+            "type": "string",
+            "enum": ["A4", "Letter", "Legal", "A3"],
+            "default": "A4"
+          },
+          "orientation": {
+            "type": "string",
+            "enum": ["portrait", "landscape"],
+            "default": "portrait"
+          }
+        }
+      },
+      "JsonRpcRequest": {
+        "type": "object",
+        "required": ["jsonrpc", "method"],
+        "properties": {
+          "jsonrpc": { "type": "string", "enum": ["2.0"] },
+          "id":      { "oneOf": [{ "type": "integer" }, { "type": "string" }] },
+          "method":  { "type": "string" },
+          "params":  { "type": "object" }
+        }
+      },
+      "JsonRpcResponse": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": { "type": "string", "enum": ["2.0"] },
+          "id":      { "oneOf": [{ "type": "integer" }, { "type": "string" }] },
+          "result":  { "type": "object" },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code":    { "type": "integer" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error":   { "type": "string" },
+          "missing": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "securitySchemes": {
+      "XAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Auth",
+        "description": "Secret token set via X_AUTH environment variable. Default: very-strong-secret"
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+vendor/
+storage/templates/*
+storage/renders/*
+!storage/templates/.gitkeep
+!storage/renders/.gitkeep
