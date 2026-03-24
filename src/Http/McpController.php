@@ -27,6 +27,8 @@ class McpController
         $raw  = file_get_contents('php://input');
         $body = json_decode($raw, true);
 
+        $this->logRequest($raw, is_array($body) ? $body : null);
+
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($body)) {
             $this->error(null, -32700, 'Parse error');
             return;
@@ -35,6 +37,7 @@ class McpController
         // Notifications have no "id" — acknowledge silently
         if (!array_key_exists('id', $body)) {
             http_response_code(202);
+            $this->log('info', 'Notification received without id; 202 accepted');
             return;
         }
 
@@ -89,6 +92,7 @@ class McpController
                 'list_versions'   => $this->toolListVersions($args),
                 'delete_version'  => $this->toolDeleteVersion($args),
                 'render_template' => $this->toolRenderTemplate($args),
+                'html_to_pdf'     => $this->toolHtmlToPdf($args),
                 default           => throw new \InvalidArgumentException("Unknown tool: {$name}"),
             };
 
@@ -205,9 +209,30 @@ class McpController
         ];
     }
 
-    // -------------------------------------------------------------------------
-    // Tool definitions (schema)
-    // -------------------------------------------------------------------------
+    private function toolHtmlToPdf(array $args): array
+    {
+        $html        = $this->require($args, 'html');
+        $paper       = $args['paper']       ?? 'A4';
+        $orientation = $args['orientation'] ?? 'portrait';
+
+        $pdfBytes = $this->pdf->generate($html, [
+            'paper'       => $paper,
+            'orientation' => $orientation,
+        ]);
+
+        $filename = 'document_' . time() . '.pdf';
+        $token    = $this->tempStore->save($pdfBytes, $filename);
+        $expiresAt = time() + 1800;
+
+        return [
+            'success'    => true,
+            'message'    => "Your PDF has been generated successfully! The download link is valid for 30 minutes.",
+            'url'        => $this->baseUrl() . '/renders/' . $token,
+            'expires_at' => date('c', $expiresAt),
+            'filename'   => $filename,
+        ];
+    }
+
 
     private function toolDefinitions(): array
     {
@@ -291,10 +316,10 @@ class McpController
             ],
             [
                 'name'        => 'render_template',
-                'description' => 'Hydrate a template with data and render to HTML or PDF. PDF is saved to a temp URL valid for 30 minutes.',
+                'description' => 'Hydrate a template with data and render to HTML or PDF. PDF is saved to a temp URL valid for 30 minutes. Use this if you want to render a template an existing template but using different data and not changing structure of template.',
                 'inputSchema' => [
                     'type'       => 'object',
-                    'required'   => ['name', 'data'],
+                    'required'   => ['name'],
                     'properties' => [
                         'name'        => ['type' => 'string'],
                         'data'        => [
@@ -306,6 +331,32 @@ class McpController
                         'format'      => ['type' => 'string', 'enum' => ['html', 'pdf'], 'default' => 'html'],
                         'paper'       => ['type' => 'string', 'enum' => ['A4', 'Letter', 'Legal', 'A3'], 'default' => 'A4'],
                         'orientation' => ['type' => 'string', 'enum' => ['portrait', 'landscape'], 'default' => 'portrait'],
+                    ],
+                ],
+            ],
+            [
+                'name'        => 'html_to_pdf',
+                'description' => 'Convert raw HTML directly to PDF without needing a template. Useful for quick one-off PDF generation from dynamic HTML. Returns a download link valid for 30 minutes.',
+                'inputSchema' => [
+                    'type'       => 'object',
+                    'required'   => ['html'],
+                    'properties' => [
+                        'html'        => [
+                            'type'        => 'string',
+                            'description' => 'Raw HTML content to convert to PDF',
+                        ],
+                        'paper'       => [
+                            'type'        => 'string',
+                            'enum'        => ['A4', 'Letter', 'Legal', 'A3'],
+                            'default'     => 'A4',
+                            'description' => 'Page size',
+                        ],
+                        'orientation' => [
+                            'type'        => 'string',
+                            'enum'        => ['portrait', 'landscape'],
+                            'default'     => 'portrait',
+                            'description' => 'Page orientation',
+                        ],
                     ],
                 ],
             ],
@@ -324,6 +375,23 @@ class McpController
         return $scheme . '://' . $host;
     }
 
+    private function log(string $level, string $message): void
+    {
+        $mask = substr($message, 0, 16384);
+        error_log(sprintf('[MCP] %s: %s', strtoupper($level), $mask));
+    }
+
+    private function logRequest(string $raw, ?array $decoded): void
+    {
+        $payload = $decoded !== null ? json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : 'invalid';
+        $this->log('request', sprintf('raw=%s decoded=%s', substr($raw, 0, 8192), $payload));
+    }
+
+    private function logResponse(mixed $id, array $response): void
+    {
+        $this->log('response', sprintf('id=%s response=%s', json_encode($id, JSON_UNESCAPED_UNICODE), json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)));
+    }
+
     private function require(array $args, string $key): mixed
     {
         if (!isset($args[$key]) || $args[$key] === '') {
@@ -335,18 +403,25 @@ class McpController
 
     private function success(mixed $id, mixed $result): void
     {
+        $payload = ['jsonrpc' => '2.0', 'id' => $id, 'result' => $result];
+        $this->logResponse($id, $payload);
+
         header('Content-Type: application/json');
-        echo json_encode(['jsonrpc' => '2.0', 'id' => $id, 'result' => $result], JSON_UNESCAPED_UNICODE);
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     }
 
     private function error(mixed $id, int $code, string $message): void
     {
-        http_response_code(200); // JSON-RPC errors still return 200
-        header('Content-Type: application/json');
-        echo json_encode([
+        $payload = [
             'jsonrpc' => '2.0',
             'id'      => $id,
             'error'   => ['code' => $code, 'message' => $message],
-        ], JSON_UNESCAPED_UNICODE);
+        ];
+
+        $this->logResponse($id, $payload);
+
+        http_response_code(200); // JSON-RPC errors still return 200
+        header('Content-Type: application/json');
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     }
 }
